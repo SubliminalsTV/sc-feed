@@ -53,7 +53,7 @@ async function fetchRepoStats(owner: string, repo: string): Promise<RepoStats> {
 
 export function GithubWidget({
   owner = 'SubliminalsTV',
-  repo = 'Subs-Curated-Bindings',
+  repo = 'sc-feed',
   className = '',
 }: {
   owner?: string
