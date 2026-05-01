@@ -23,6 +23,8 @@ export const metadata: Metadata = {
 }
 
 // Vercel build sanity marker: VERCEL_BUILD_PROBE_2026_05_01
+const _PROBE_UNIQUE = 'VERCEL_BUILD_TRACE_KILROY_WAS_HERE_88a9e32f'
 export default function ScFeedPage() {
+  console.log(_PROBE_UNIQUE)
   return <ScFeedView />
 }
