@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 
-const PB_URL = process.env.POCKETBASE_URL ?? 'http://pocketbase:8090'
+const PB_URL = process.env.POCKETBASE_URL ?? 'https://mc-db.subliminal.gg'
 
 async function proxy(req: NextRequest, params: { path: string[] }) {
   const { path } = await params

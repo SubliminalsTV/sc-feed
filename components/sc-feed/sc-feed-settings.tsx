@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Bell, BellOff, BellRing, BookmarkPlus, CheckCheck, Eye, EyeOff, GripVertical, LayoutTemplate, Loader2, Moon, Plus, Rss, RotateCcw, Save, Sun, Trash2, Tv, X, Youtube } from 'lucide-react'
+import { Bell, BellOff, BellRing, BookmarkPlus, CheckCheck, Eye, EyeOff, GripVertical, LayoutTemplate, Loader2, Moon, Plus, Rss, RotateCcw, Save, Sparkles, Sun, Trash2, Tv, X, Youtube } from 'lucide-react'
+import { CURRENT_VERSION } from '@/lib/patch-notes'
 import type { FeedChannel } from '@/app/api/sc-feed/route'
 import { type LayoutPreset, type UserYTChannel, type UserTwitchStreamer, type UserRSSFeed, MAX_YT_CHANNELS, MAX_TWITCH_STREAMERS, MAX_RSS_FEEDS } from './sc-feed-types'
 import { getFeedLabel } from './sc-feed-utils'
@@ -22,6 +23,7 @@ export function SettingsPanel({
   userYTChannels, onAddYT, onRemoveYT,
   userTwitchStreamers, onAddTwitch, onRemoveTwitch,
   userRSSFeeds, onAddRSS, onRemoveRSS,
+  onOpenPatchNotes,
 }: {
   channels: FeedChannel[]
   columnOrder: string[] | null
@@ -54,6 +56,7 @@ export function SettingsPanel({
   userRSSFeeds: UserRSSFeed[]
   onAddRSS: (url: string) => Promise<string | null>
   onRemoveRSS: (url: string) => void
+  onOpenPatchNotes: () => void
 }) {
   const order = columnOrder ?? []
   const [markedAllRead, setMarkedAllRead] = useState(false)
@@ -373,6 +376,21 @@ export function SettingsPanel({
           onAdd={onAddRSS}
           onRemove={key => onRemoveRSS(key)}
         />
+      </div>
+
+      {/* About — version + What's New */}
+      <div>
+        <p className="text-[9px] font-label font-black uppercase tracking-widest text-on-surface-variant/50 mb-2">About</p>
+        <button
+          onClick={onOpenPatchNotes}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-surface-container-high transition-colors text-left"
+        >
+          <span className="inline-flex items-center gap-2 text-[11px] font-label font-black text-on-surface">
+            <Sparkles className="w-3.5 h-3.5 text-primary-container" />
+            What&apos;s New
+          </span>
+          <span className="text-[10px] font-mono text-on-surface-variant/50">v{CURRENT_VERSION}</span>
+        </button>
       </div>
 
     </div>

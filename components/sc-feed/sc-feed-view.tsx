@@ -18,7 +18,7 @@ function urlBase64ToUint8Array(b64: string): Uint8Array<ArrayBuffer> {
 }
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Download, Loader2, RefreshCw, Search, Settings, X } from 'lucide-react'
+import { Download, Loader2, Menu, RefreshCw, Search, Settings, Sparkles, X } from 'lucide-react'
 import type { FeedChannel, FeedMessage } from '@/app/api/sc-feed/route'
 import {
   COLUMN_WIDTHS, DEFAULT_ENABLED_TRACKER_KEYS, DEFAULT_PRESETS, FeedPrefsContext,
@@ -36,6 +36,8 @@ import { NotificationsFab } from './sc-feed-notifications'
 import { CookieBanner } from './sc-feed-cookie-banner'
 import { GithubWidget } from './sc-feed-github-widget'
 import { FeedAlerts } from './feed-alerts'
+import { PatchNotesModal } from './sc-feed-patch-notes'
+import { CURRENT_VERSION, PATCH_NOTES_SEEN_KEY } from '@/lib/patch-notes'
 
 // Stable per-channel wrapper so React.memo on ChannelFeed can skip re-renders when
 // only unrelated ScFeedView state (e.g. settingsOpen) changes. Defined at module level
@@ -108,6 +110,9 @@ export function ScFeedView() {
   const [hiddenChannels, setHiddenChannels] = useState<Set<string>>(new Set())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [patchNotesOpen, setPatchNotesOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const mobileMenuRef = useRef<HTMLDivElement | null>(null)
   const [leaksRevealed, setLeaksRevealed] = useState(false)
   const [mobileActiveFeed, setMobileActiveFeed] = useState<string | null>(null)
 
@@ -119,7 +124,6 @@ export function ScFeedView() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [dateFormat, setDateFormat] = useState<'short' | 'long'>('short')
   const [theme, setThemeState] = useState<'dark' | 'light'>('dark')
-  const [spectrumTokenValid, setSpectrumTokenValid] = useState<boolean | null>(null)
   const [hideAllRead, setHideAllRead] = useState(false)
   const [layoutPresets, setLayoutPresets] = useState<LayoutPreset[]>([])
   const [omniSourceToggles, setOmniSourceToggles] = useState<Record<string, boolean>>({})
@@ -701,26 +705,29 @@ export function ScFeedView() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [fetchFeed])
 
+  // Auto-show patch notes on first visit OR when version has bumped since last close.
   useEffect(() => {
-    fetch('/api/sc-feed/spectrum-health')
-      .then(r => r.json())
-      .then((d: { valid: boolean; reason?: string }) => {
-        setSpectrumTokenValid(d.valid)
-        if (!d.valid) {
-          // Post to ops inbox once per session so the notifier can Discord-DM
-          const lastWarn = sessionStorage.getItem('sc-spectrum-warned')
-          if (!lastWarn) {
-            sessionStorage.setItem('sc-spectrum-warned', '1')
-            fetch('http://192.168.1.97:8765/tasks/inbox', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message: `⚠️ RSI Spectrum token expired — update RSI_TOKEN in .env.mission-control and restart the MC stack. Reason: ${d.reason ?? 'unknown'}`, priority: 'high' }),
-            }).catch(() => {/* LAN only — silently ignore if not reachable */})
-          }
-        }
-      })
-      .catch(() => {/* health check optional */})
+    const seen = localStorage.getItem(PATCH_NOTES_SEEN_KEY)
+    if (seen !== CURRENT_VERSION) setPatchNotesOpen(true)
   }, [])
+
+  // Stamp seen-version when modal closes.
+  const closePatchNotes = useCallback(() => {
+    setPatchNotesOpen(false)
+    try { localStorage.setItem(PATCH_NOTES_SEEN_KEY, CURRENT_VERSION) } catch {}
+  }, [])
+
+  // Close mobile menu on outside click.
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const onClick = (e: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setMobileMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [mobileMenuOpen])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1016,6 +1023,7 @@ export function ScFeedView() {
     userYTChannels, onAddYT: handleAddYT, onRemoveYT: handleRemoveYT,
     userTwitchStreamers, onAddTwitch: handleAddTwitch, onRemoveTwitch: handleRemoveTwitch,
     userRSSFeeds, onAddRSS: handleAddRSS, onRemoveRSS: handleRemoveRSS,
+    onOpenPatchNotes: () => { setSettingsOpen(false); setPatchNotesOpen(true) },
   }
 
   return (
@@ -1023,16 +1031,25 @@ export function ScFeedView() {
     <div className="flex flex-col hero-gradient flex-1 min-h-0">
 
       {/* Header */}
-      <div className="shrink-0 px-6 py-3.5 border-b border-outline-variant/30 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="shrink-0 px-4 sm:px-6 py-3.5 border-b border-outline-variant/30 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
           <img
             src={theme === 'light' ? '/logos/[SCFeed][Logo][Black][Color].svg' : '/logos/[SCFeed][Logo][White][Color].svg'}
             alt="SC Feed"
-            className="h-10"
+            className="h-9 sm:h-10 shrink-0"
           />
-          <GithubWidget className="hidden md:inline-flex" />
+          <button
+            onClick={() => setPatchNotesOpen(true)}
+            className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full border border-outline-variant/40 text-[9px] font-mono font-black uppercase tracking-widest text-on-surface-variant/70 hover:text-on-surface hover:border-outline transition-colors"
+            title="What's new"
+          >
+            v{CURRENT_VERSION}
+          </button>
+          <GithubWidget className="!hidden md:!inline-flex" />
         </div>
-        <div className="flex items-center gap-1.5">
+
+        {/* Desktop button cluster */}
+        <div className="hidden sm:flex items-center gap-1.5">
           {showInstallBtn && (
             <button
               onClick={async () => {
@@ -1048,11 +1065,11 @@ export function ScFeedView() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant/40 text-on-surface-variant text-[10px] font-label font-black uppercase tracking-widest hover:text-on-surface hover:border-outline transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Install</span>
+              <span>Install</span>
             </button>
           )}
           {lastFetch && (
-            <span className="text-[10px] font-mono text-on-surface-variant/50 hidden sm:block mr-1">
+            <span className="text-[10px] font-mono text-on-surface-variant/50 mr-1">
               {timeAgo(lastFetch.toISOString())}
             </span>
           )}
@@ -1062,7 +1079,7 @@ export function ScFeedView() {
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant/40 text-on-surface-variant text-[10px] font-label font-black uppercase tracking-widest hover:text-on-surface hover:border-outline transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Refresh</span>
+            <span>Refresh</span>
           </button>
           <button
             onClick={() => setSettingsOpen(o => !o)}
@@ -1072,8 +1089,69 @@ export function ScFeedView() {
               }`}
           >
             <Settings className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Settings</span>
+            <span>Settings</span>
           </button>
+        </div>
+
+        {/* Mobile hamburger — replaces the cluster below sm */}
+        <div className="relative sm:hidden" ref={mobileMenuRef}>
+          <button
+            onClick={() => setMobileMenuOpen(o => !o)}
+            className={`inline-flex items-center justify-center p-2 rounded-lg border transition-colors ${mobileMenuOpen
+                ? 'border-primary-container/40 bg-primary-container/10 text-primary-container'
+                : 'border-outline-variant/40 text-on-surface-variant hover:text-on-surface hover:border-outline'
+              }`}
+            aria-label="Menu"
+            aria-expanded={mobileMenuOpen}
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+          {mobileMenuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-56 z-40 rounded-lg border border-outline-variant/40 bg-surface-container shadow-xl overflow-hidden">
+              {lastFetch && (
+                <div className="px-3 py-2 text-[10px] font-mono text-on-surface-variant/50 border-b border-outline-variant/30">
+                  Updated {timeAgo(lastFetch.toISOString())}
+                </div>
+              )}
+              {showInstallBtn && (
+                <button
+                  onClick={async () => {
+                    setMobileMenuOpen(false)
+                    if (!installPromptRef.current) return
+                    await installPromptRef.current.prompt()
+                    const { outcome } = await installPromptRef.current.userChoice
+                    installPromptRef.current = null
+                    setShowInstallBtn(false)
+                    if (outcome === 'dismissed') {
+                      localStorage.setItem('sc-feed-install-dismissed', 'true')
+                    }
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-label font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors text-left"
+                >
+                  <Download className="w-3.5 h-3.5" />Install
+                </button>
+              )}
+              <button
+                onClick={() => { setMobileMenuOpen(false); fetchFeed(true) }}
+                disabled={refreshing || loading}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-label font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors disabled:opacity-50 text-left"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />Refresh
+              </button>
+              <button
+                onClick={() => { setMobileMenuOpen(false); setSettingsOpen(true) }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-label font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors text-left"
+              >
+                <Settings className="w-3.5 h-3.5" />Settings
+              </button>
+              <button
+                onClick={() => { setMobileMenuOpen(false); setPatchNotesOpen(true) }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-label font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors text-left border-t border-outline-variant/30"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-primary-container" />What&apos;s New
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1174,17 +1252,6 @@ export function ScFeedView() {
 
       <FeedAlerts />
 
-      {/* Spectrum token expiry banner */}
-      {spectrumTokenValid === false && (
-        <div className="fixed top-0 inset-x-0 z-50 flex items-center gap-3 px-4 py-2.5 bg-amber-900/90 border-b border-amber-500/40 backdrop-blur-sm">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-          <p className="flex-1 text-[12px] font-label font-black text-amber-200">RSI Spectrum session token expired — Spectrum channels may be stale. Update <code className="font-mono bg-amber-800/60 px-1 rounded">RSI_TOKEN</code> in <code className="font-mono bg-amber-800/60 px-1 rounded">.env.mission-control</code> and restart the MC stack.</p>
-          <button onClick={() => setSpectrumTokenValid(null)} className="shrink-0 p-1 rounded text-amber-400/60 hover:text-amber-300 transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
       {/* Spotlight search overlay */}
       {searchOpen && (
         <>
@@ -1248,6 +1315,8 @@ export function ScFeedView() {
       />
 
       <CookieBanner />
+
+      <PatchNotesModal open={patchNotesOpen} onClose={closePatchNotes} />
 
     </FeedPrefsContext.Provider>
   )
