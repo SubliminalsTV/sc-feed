@@ -22,6 +22,7 @@ export const metadata: Metadata = {
   },
 }
 
+// Vercel build sanity marker: VERCEL_BUILD_PROBE_2026_05_01
 export default function ScFeedPage() {
   return <ScFeedView />
 }
