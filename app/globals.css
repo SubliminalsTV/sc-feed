@@ -1,0 +1,268 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Theme tokens. Tailwind v4 picks these up automatically — every utility
+ * like bg-surface, text-on-surface, border-outline-variant references the
+ * matching CSS var. To switch themes we override the same vars on :root.light
+ * and the entire UI re-skins without touching any component classes.
+ *
+ * Default = dark (preserves existing behavior). Light mode is opt-in via the
+ * Settings panel toggle which adds the .light class to <html>.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-background:                var(--mc-background);
+  --color-surface:                   var(--mc-surface);
+  --color-surface-dim:               var(--mc-surface-dim);
+  --color-surface-bright:            var(--mc-surface-bright);
+  --color-surface-container-lowest:  var(--mc-surface-container-lowest);
+  --color-surface-container-low:     var(--mc-surface-container-low);
+  --color-surface-container:         var(--mc-surface-container);
+  --color-surface-container-high:    var(--mc-surface-container-high);
+  --color-surface-container-highest: var(--mc-surface-container-highest);
+  --color-surface-variant:           var(--mc-surface-variant);
+  --color-surface-tint:              var(--mc-surface-tint);
+
+  --color-on-surface:                var(--mc-on-surface);
+  --color-on-surface-variant:        var(--mc-on-surface-variant);
+  --color-outline:                   var(--mc-outline);
+  --color-outline-variant:           var(--mc-outline-variant);
+
+  --color-primary:                   var(--mc-primary);
+  --color-primary-container:         var(--mc-primary-container);
+  --color-primary-fixed:             var(--mc-primary-fixed);
+  --color-primary-fixed-dim:         var(--mc-primary-fixed-dim);
+  --color-on-primary:                var(--mc-on-primary);
+  --color-on-primary-container:      var(--mc-on-primary-container);
+  --color-on-primary-fixed:          var(--mc-on-primary-fixed);
+  --color-on-primary-fixed-variant:  var(--mc-on-primary-fixed-variant);
+  --color-inverse-primary:           var(--mc-inverse-primary);
+
+  --color-secondary:                 var(--mc-secondary);
+  --color-secondary-container:       var(--mc-secondary-container);
+  --color-secondary-fixed:           var(--mc-secondary-fixed);
+  --color-secondary-fixed-dim:       var(--mc-secondary-fixed-dim);
+  --color-on-secondary:              var(--mc-on-secondary);
+  --color-on-secondary-container:    var(--mc-on-secondary-container);
+  --color-on-secondary-fixed:        var(--mc-on-secondary-fixed);
+  --color-on-secondary-fixed-variant:var(--mc-on-secondary-fixed-variant);
+
+  --color-tertiary:                  var(--mc-tertiary);
+  --color-tertiary-container:        var(--mc-tertiary-container);
+  --color-tertiary-fixed:            var(--mc-tertiary-fixed);
+  --color-tertiary-fixed-dim:        var(--mc-tertiary-fixed-dim);
+  --color-on-tertiary:               var(--mc-on-tertiary);
+  --color-on-tertiary-container:     var(--mc-on-tertiary-container);
+  --color-on-tertiary-fixed:         var(--mc-on-tertiary-fixed);
+  --color-on-tertiary-fixed-variant: var(--mc-on-tertiary-fixed-variant);
+
+  --color-error:                     var(--mc-error);
+  --color-error-container:           var(--mc-error-container);
+  --color-on-error:                  var(--mc-on-error);
+  --color-on-error-container:        var(--mc-on-error-container);
+
+  --color-inverse-surface:           var(--mc-inverse-surface);
+  --color-inverse-on-surface:        var(--mc-inverse-on-surface);
+  --color-on-background:             var(--mc-on-background);
+
+  /* Font families — CSS vars injected by next/font */
+  --font-headline: var(--font-sg), 'Space Grotesk', sans-serif;
+  --font-body:     var(--font-inter), 'Inter', sans-serif;
+  --font-label:    var(--font-inter), 'Inter', sans-serif;
+}
+
+/* Default = M3 Dark (Amber seed) */
+:root {
+  --mc-background:                #121414;
+  --mc-surface:                   #121414;
+  --mc-surface-dim:               #121414;
+  --mc-surface-bright:            #383939;
+  --mc-surface-container-lowest:  #0d0e0f;
+  --mc-surface-container-low:     #1b1c1c;
+  --mc-surface-container:         #1f2020;
+  --mc-surface-container-high:    #292a2a;
+  --mc-surface-container-highest: #343535;
+  --mc-surface-variant:           #343535;
+  --mc-surface-tint:              #ffb94e;
+
+  --mc-on-surface:                #e3e2e2;
+  --mc-on-surface-variant:        #d6c4ae;
+  --mc-outline:                   #9f8e7a;
+  --mc-outline-variant:           #524534;
+
+  --mc-primary:                   #ffd7a1;
+  --mc-primary-container:         #ffb231;
+  --mc-primary-fixed:             #ffddb2;
+  --mc-primary-fixed-dim:         #ffb94e;
+  --mc-on-primary:                #452b00;
+  --mc-on-primary-container:      #6d4700;
+  --mc-on-primary-fixed:          #291800;
+  --mc-on-primary-fixed-variant:  #624000;
+  --mc-inverse-primary:           #825500;
+
+  --mc-secondary:                 #ffb784;
+  --mc-secondary-container:       #dd7512;
+  --mc-secondary-fixed:           #ffdcc5;
+  --mc-secondary-fixed-dim:       #ffb784;
+  --mc-on-secondary:              #4f2500;
+  --mc-on-secondary-container:    #451f00;
+  --mc-on-secondary-fixed:        #301400;
+  --mc-on-secondary-fixed-variant:#713700;
+
+  --mc-tertiary:                  #dfdddc;
+  --mc-tertiary-container:        #c3c1c1;
+  --mc-tertiary-fixed:            #e4e2e1;
+  --mc-tertiary-fixed-dim:        #c8c6c6;
+  --mc-on-tertiary:               #303030;
+  --mc-on-tertiary-container:     #4f4f4f;
+  --mc-on-tertiary-fixed:         #1b1c1c;
+  --mc-on-tertiary-fixed-variant: #474747;
+
+  --mc-error:                     #ffb4ab;
+  --mc-error-container:           #93000a;
+  --mc-on-error:                  #690005;
+  --mc-on-error-container:        #ffdad6;
+
+  --mc-inverse-surface:           #e3e2e2;
+  --mc-inverse-on-surface:        #303031;
+  --mc-on-background:             #e3e2e2;
+
+  /* Glass card defaults — derived from surface so they re-skin with theme */
+  --mc-glass-bg: rgba(31, 32, 32, 0.4);
+  --mc-glass-border: rgba(255, 255, 255, 0.05);
+  --mc-hero-glow: rgba(255, 178, 49, 0.04);
+  --mc-scrollbar: rgba(255, 178, 49, 0.20);
+  --mc-scrollbar-hover: rgba(255, 178, 49, 0.45);
+
+  /* Notification count badge — punchy red in both modes (M3 error tokens
+   * invert between light/dark which would dim the dark badge). */
+  --mc-notif-badge: #f43f5e;
+  --mc-notif-badge-fg: #ffffff;
+
+  /* Toast / inline error text — readable on each surface */
+  --mc-error-text: #fb7185;
+}
+
+/* M3 Light (Amber seed) — applied when <html class="light"> */
+/* Editorial cream / explorer's-log direction. The brand amber (#ffb231)
+ * stays for highlight moments (logo, FABs, hover); UI text/icon role uses
+ * the deeper #825500 for legibility on cream. Outline/glass tokens are
+ * pulled darker so per-component `/30`-style opacity utilities still read.
+ */
+:root.light {
+  --mc-background:                #fbf6ec;
+  --mc-surface:                   #fbf6ec;
+  --mc-surface-dim:               #d8d2c5;
+  --mc-surface-bright:            #ffffff;
+  --mc-surface-container-lowest:  #ffffff;
+  --mc-surface-container-low:     #f5efe2;
+  --mc-surface-container:         #ede5d3;
+  --mc-surface-container-high:    #e2d9c3;
+  --mc-surface-container-highest: #d8ceb4;
+  --mc-surface-variant:           #f0e0c2;
+  --mc-surface-tint:              #825500;
+
+  --mc-on-surface:                #1d1b16;
+  --mc-on-surface-variant:        #524534;
+  --mc-outline:                   #6b5c47;
+  --mc-outline-variant:           #b39d7e;
+
+  --mc-primary:                   #825500;
+  --mc-primary-container:         #ffb231;
+  --mc-primary-fixed:             #ffddb2;
+  --mc-primary-fixed-dim:         #ffb94e;
+  --mc-on-primary:                #ffffff;
+  --mc-on-primary-container:      #4a2a00;
+  --mc-on-primary-fixed:          #291800;
+  --mc-on-primary-fixed-variant:  #624000;
+  --mc-inverse-primary:           #ffb94e;
+
+  --mc-secondary:                 #8c4f00;
+  --mc-secondary-container:       #ffdcc5;
+  --mc-secondary-fixed:           #ffdcc5;
+  --mc-secondary-fixed-dim:       #ffb784;
+  --mc-on-secondary:              #ffffff;
+  --mc-on-secondary-container:    #2d1500;
+  --mc-on-secondary-fixed:        #301400;
+  --mc-on-secondary-fixed-variant:#713700;
+
+  --mc-tertiary:                  #4f4f4f;
+  --mc-tertiary-container:        #e6e1dc;
+  --mc-tertiary-fixed:            #e4e2e1;
+  --mc-tertiary-fixed-dim:        #c8c6c6;
+  --mc-on-tertiary:               #ffffff;
+  --mc-on-tertiary-container:     #1b1c1c;
+  --mc-on-tertiary-fixed:         #1b1c1c;
+  --mc-on-tertiary-fixed-variant: #474747;
+
+  --mc-error:                     #ba1a1a;
+  --mc-error-container:           #ffdad6;
+  --mc-on-error:                  #ffffff;
+  --mc-on-error-container:        #410002;
+
+  --mc-inverse-surface:           #303031;
+  --mc-inverse-on-surface:        #f3eee8;
+  --mc-on-background:             #1d1b16;
+
+  --mc-glass-bg: rgba(255, 252, 245, 0.7);
+  --mc-glass-border: rgba(82, 69, 52, 0.18);
+  --mc-hero-glow: rgba(168, 107, 0, 0.18);
+  --mc-scrollbar: rgba(130, 85, 0, 0.35);
+  --mc-scrollbar-hover: rgba(130, 85, 0, 0.6);
+
+  --mc-notif-badge: #be123c;
+  --mc-notif-badge-fg: #ffffff;
+
+  --mc-error-text: #b91c1c;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background-color: var(--mc-background);
+  color: var(--mc-on-background);
+  font-family: var(--font-body);
+  height: 100%;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Glass card — uses theme-derived vars */
+.glass-card {
+  background: var(--mc-glass-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--mc-glass-border);
+}
+
+/* Ambient amber glow */
+.hero-gradient {
+  background: radial-gradient(circle at 70% 30%, var(--mc-hero-glow) 0%, transparent 55%);
+}
+
+/* Feed alert slide-in */
+@keyframes mc-slide-in {
+  from { transform: translateX(110%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* Notification ticker scroll */
+@keyframes mc-ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* Scrollbar — thin amber-tinted, theme-aware */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--mc-scrollbar);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mc-scrollbar-hover);
+}
+* { scrollbar-width: thin; scrollbar-color: var(--mc-scrollbar) transparent; }
+
+.scrollbar-hidden { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-hidden::-webkit-scrollbar { display: none; }
