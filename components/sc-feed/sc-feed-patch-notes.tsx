@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import { PATCH_NOTES, type PatchNote } from '@/lib/patch-notes'
 
-export function PatchNotesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function PatchNotesModal({ open, onClose, theme = 'dark' }: { open: boolean; onClose: () => void; theme?: 'dark' | 'light' }) {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -31,10 +31,17 @@ export function PatchNotesModal({ open, onClose }: { open: boolean; onClose: () 
         className="relative w-full max-w-xl max-h-[85vh] overflow-y-auto bg-surface-container rounded-xl border border-outline-variant/30 shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        <div className="sticky top-0 flex items-center justify-between gap-3 px-5 sm:px-6 py-4 bg-surface-container border-b border-outline-variant/30">
-          <h2 id="patch-notes-title" className="text-[11px] font-label font-black uppercase tracking-widest text-on-surface-variant/60">
-            What&apos;s New
-          </h2>
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 sm:px-6 py-4 bg-surface-container border-b border-outline-variant/30">
+          <div className="flex items-center gap-3 min-w-0">
+            <img
+              src={theme === 'light' ? '/logos/[SCFeed][Logo][Black][Color].svg' : '/logos/[SCFeed][Logo][White][Color].svg'}
+              alt="SC Feed"
+              className="h-7 sm:h-8 shrink-0"
+            />
+            <h2 id="patch-notes-title" className="text-[11px] font-label font-black uppercase tracking-widest text-on-surface-variant/60 truncate">
+              What&apos;s New
+            </h2>
+          </div>
           <button
             onClick={onClose}
             className="shrink-0 p-1 rounded-full text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-container-high transition-colors"

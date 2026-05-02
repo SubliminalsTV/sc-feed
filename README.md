@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="public/logos/[SCFeed][Logo][White][Color].svg" alt="SC Feed" width="280" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="public/logos/[SCFeed][Logo][White][Color].svg" />
+  <img src="public/logos/[SCFeed][Logo][Black][Color].svg" alt="SC Feed" width="280" />
+</picture>
 
 # SC Feed
 

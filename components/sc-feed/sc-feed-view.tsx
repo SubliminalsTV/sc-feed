@@ -35,7 +35,6 @@ import { SettingsPanel } from './sc-feed-settings'
 import { NotificationsFab } from './sc-feed-notifications'
 import { CookieBanner } from './sc-feed-cookie-banner'
 import { GithubWidget } from './sc-feed-github-widget'
-import { FeedAlerts } from './feed-alerts'
 import { PatchNotesModal } from './sc-feed-patch-notes'
 import { CURRENT_VERSION, PATCH_NOTES_SEEN_KEY } from '@/lib/patch-notes'
 
@@ -150,6 +149,8 @@ export function ScFeedView() {
   const [pushPermission, setPushPermission] = useState<NotificationPermission>('default')
   const [pushPending, setPushPending] = useState(false)
   const [pushError, setPushError] = useState<string | null>(null)
+  const [pushTestPending, setPushTestPending] = useState(false)
+  const [pushTestStatus, setPushTestStatus] = useState<'idle' | 'sent' | 'error'>('idle')
 
   function toggleTabBar() {
     const next = !showTabBar
@@ -352,6 +353,42 @@ export function ScFeedView() {
       setPushError(msg.includes('timed out') ? 'Timed out — browser could not reach the push service. Check your network.' : `Subscribe failed: ${msg}`)
     } finally { setPushPending(false) }
   }, [pushEnabled])
+
+  const handleTestPush = useCallback(async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+    setPushTestPending(true)
+    setPushTestStatus('idle')
+    setPushError(null)
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.getSubscription()
+      if (!sub) {
+        setPushError('No active subscription on this device. Toggle push off and back on.')
+        setPushTestStatus('error')
+        return
+      }
+      const res = await fetch('/api/sc-feed/push-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: sub.endpoint }),
+      })
+      if (!res.ok) {
+        const d: { error?: string } = await res.json().catch(() => ({}))
+        setPushError(d.error ?? `Test failed (HTTP ${res.status})`)
+        setPushTestStatus('error')
+        return
+      }
+      setPushTestStatus('sent')
+      // Auto-clear the "Sent" hint after a few seconds
+      setTimeout(() => setPushTestStatus(s => s === 'sent' ? 'idle' : s), 4000)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setPushError(`Test failed: ${msg}`)
+      setPushTestStatus('error')
+    } finally {
+      setPushTestPending(false)
+    }
+  }, [])
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -1019,7 +1056,9 @@ export function ScFeedView() {
     onDeletePreset: deleteLayoutPreset,
     onOverwritePreset: overwriteLayoutPreset,
     pushSupported, pushEnabled, pushPermission, pushPending, pushError,
+    pushTestPending, pushTestStatus,
     onTogglePush: handleTogglePush,
+    onTestPush: handleTestPush,
     userYTChannels, onAddYT: handleAddYT, onRemoveYT: handleRemoveYT,
     userTwitchStreamers, onAddTwitch: handleAddTwitch, onRemoveTwitch: handleRemoveTwitch,
     userRSSFeeds, onAddRSS: handleAddRSS, onRemoveRSS: handleRemoveRSS,
@@ -1030,71 +1069,11 @@ export function ScFeedView() {
     <FeedPrefsContext.Provider value={{ dateFormat, hideAllRead }}>
     <div className="flex flex-col hero-gradient flex-1 min-h-0">
 
-      {/* Header */}
-      <div className="shrink-0 px-4 sm:px-6 py-3.5 border-b border-outline-variant/30 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-          <img
-            src={theme === 'light' ? '/logos/[SCFeed][Logo][Black][Color].svg' : '/logos/[SCFeed][Logo][White][Color].svg'}
-            alt="SC Feed"
-            className="h-9 sm:h-10 shrink-0"
-          />
-          <button
-            onClick={() => setPatchNotesOpen(true)}
-            className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full border border-outline-variant/40 text-[9px] font-mono font-black uppercase tracking-widest text-on-surface-variant/70 hover:text-on-surface hover:border-outline transition-colors"
-            title="What's new"
-          >
-            v{CURRENT_VERSION}
-          </button>
-          <GithubWidget className="!hidden md:!inline-flex" />
-        </div>
+      {/* Header — three-zone layout: hamburger LEFT · logo CENTER · github RIGHT */}
+      <div className="shrink-0 px-4 sm:px-6 py-3.5 border-b border-outline-variant/30 grid grid-cols-[auto_1fr_auto] items-center gap-3">
 
-        {/* Desktop button cluster */}
-        <div className="hidden sm:flex items-center gap-1.5">
-          {showInstallBtn && (
-            <button
-              onClick={async () => {
-                if (!installPromptRef.current) return
-                await installPromptRef.current.prompt()
-                const { outcome } = await installPromptRef.current.userChoice
-                installPromptRef.current = null
-                setShowInstallBtn(false)
-                if (outcome === 'dismissed') {
-                  localStorage.setItem('sc-feed-install-dismissed', 'true')
-                }
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant/40 text-on-surface-variant text-[10px] font-label font-black uppercase tracking-widest hover:text-on-surface hover:border-outline transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Install</span>
-            </button>
-          )}
-          {lastFetch && (
-            <span className="text-[10px] font-mono text-on-surface-variant/50 mr-1">
-              {timeAgo(lastFetch.toISOString())}
-            </span>
-          )}
-          <button
-            onClick={() => fetchFeed(true)}
-            disabled={refreshing || loading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant/40 text-on-surface-variant text-[10px] font-label font-black uppercase tracking-widest hover:text-on-surface hover:border-outline transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            <span>Refresh</span>
-          </button>
-          <button
-            onClick={() => setSettingsOpen(o => !o)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[10px] font-label font-black uppercase tracking-widest transition-colors ${settingsOpen
-                ? 'border-primary-container/40 bg-primary-container/10 text-primary-container'
-                : 'border-outline-variant/40 text-on-surface-variant hover:text-on-surface hover:border-outline'
-              }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Settings</span>
-          </button>
-        </div>
-
-        {/* Mobile hamburger — replaces the cluster below sm */}
-        <div className="relative sm:hidden" ref={mobileMenuRef}>
+        {/* LEFT — single canonical hamburger menu (all sizes) */}
+        <div className="relative justify-self-start" ref={mobileMenuRef}>
           <button
             onClick={() => setMobileMenuOpen(o => !o)}
             className={`inline-flex items-center justify-center p-2 rounded-lg border transition-colors ${mobileMenuOpen
@@ -1107,29 +1086,11 @@ export function ScFeedView() {
             <Menu className="w-4 h-4" />
           </button>
           {mobileMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 z-40 rounded-lg border border-outline-variant/40 bg-surface-container shadow-xl overflow-hidden">
+            <div className="absolute left-0 top-full mt-2 w-56 z-40 rounded-lg border border-outline-variant/40 bg-surface-container shadow-xl overflow-hidden">
               {lastFetch && (
                 <div className="px-3 py-2 text-[10px] font-mono text-on-surface-variant/50 border-b border-outline-variant/30">
                   Updated {timeAgo(lastFetch.toISOString())}
                 </div>
-              )}
-              {showInstallBtn && (
-                <button
-                  onClick={async () => {
-                    setMobileMenuOpen(false)
-                    if (!installPromptRef.current) return
-                    await installPromptRef.current.prompt()
-                    const { outcome } = await installPromptRef.current.userChoice
-                    installPromptRef.current = null
-                    setShowInstallBtn(false)
-                    if (outcome === 'dismissed') {
-                      localStorage.setItem('sc-feed-install-dismissed', 'true')
-                    }
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-label font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors text-left"
-                >
-                  <Download className="w-3.5 h-3.5" />Install
-                </button>
               )}
               <button
                 onClick={() => { setMobileMenuOpen(false); fetchFeed(true) }}
@@ -1144,6 +1105,24 @@ export function ScFeedView() {
               >
                 <Settings className="w-3.5 h-3.5" />Settings
               </button>
+              {showInstallBtn && (
+                <button
+                  onClick={async () => {
+                    setMobileMenuOpen(false)
+                    if (!installPromptRef.current) return
+                    await installPromptRef.current.prompt()
+                    const { outcome } = await installPromptRef.current.userChoice
+                    installPromptRef.current = null
+                    setShowInstallBtn(false)
+                    if (outcome === 'dismissed') {
+                      localStorage.setItem('sc-feed-install-dismissed', 'true')
+                    }
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-label font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors text-left border-t border-outline-variant/30"
+                >
+                  <Download className="w-3.5 h-3.5" />Install
+                </button>
+              )}
               <button
                 onClick={() => { setMobileMenuOpen(false); setPatchNotesOpen(true) }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-label font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors text-left border-t border-outline-variant/30"
@@ -1152,6 +1131,27 @@ export function ScFeedView() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* CENTER — logo + version pill */}
+        <div className="justify-self-center flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <img
+            src={theme === 'light' ? '/logos/[SCFeed][Logo][Black][Color].svg' : '/logos/[SCFeed][Logo][White][Color].svg'}
+            alt="SC Feed"
+            className="h-9 sm:h-10 shrink-0"
+          />
+          <button
+            onClick={() => setPatchNotesOpen(true)}
+            className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full border border-outline-variant/40 text-[9px] font-mono font-black uppercase tracking-widest text-on-surface-variant/70 hover:text-on-surface hover:border-outline transition-colors"
+            title="What's new"
+          >
+            v{CURRENT_VERSION}
+          </button>
+        </div>
+
+        {/* RIGHT — GitHub badge */}
+        <div className="justify-self-end flex items-center">
+          <GithubWidget className="!hidden md:!inline-flex" />
         </div>
       </div>
 
@@ -1250,8 +1250,6 @@ export function ScFeedView() {
 
     </div>
 
-      <FeedAlerts />
-
       {/* Spotlight search overlay */}
       {searchOpen && (
         <>
@@ -1311,12 +1309,30 @@ export function ScFeedView() {
         channels={channels}
         open={notificationsOpen}
         onToggleOpen={() => setNotificationsOpen(o => !o)}
+        onForceOpen={() => setNotificationsOpen(true)}
         slideClass={settingsOpen ? 'md:-translate-x-72' : ''}
       />
 
+      {/* SC Community FAB — top of the FAB stack, links out to RSI */}
+      <a
+        href="https://robertsspaceindustries.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Made by the Community — robertsspaceindustries.com"
+        className={`fixed bottom-[10.5rem] right-6 z-30 w-14 h-14 rounded-full flex items-center justify-center shadow-lg bg-surface-container-high border border-outline-variant/40 hover:brightness-110 transition-all duration-200 ease-in-out ${
+          settingsOpen ? 'md:-translate-x-72' : ''
+        }`}
+      >
+        <img
+          src={theme === 'light' ? '/logos/MadeByTheCommunity_Black.png' : '/logos/MadeByTheCommunity_White.png'}
+          alt="Made by the Community"
+          className="w-9 h-9 object-contain"
+        />
+      </a>
+
       <CookieBanner />
 
-      <PatchNotesModal open={patchNotesOpen} onClose={closePatchNotes} />
+      <PatchNotesModal open={patchNotesOpen} onClose={closePatchNotes} theme={theme} />
 
     </FeedPrefsContext.Provider>
   )

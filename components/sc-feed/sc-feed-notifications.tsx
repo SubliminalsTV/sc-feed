@@ -150,40 +150,94 @@ function NotifCard({ item, isRead, onToggle }: {
   )
 }
 
+function playChime() {
+  try {
+    const audio = new Audio('/sounds/notification.mp3')
+    audio.volume = 0.6
+    void audio.play().catch(() => {})
+  } catch { /* audio may be blocked until user interaction */ }
+}
+
 /**
- * Bell-icon FAB + popover. Replaces the old NotificationsPanel sidebar.
+ * Bell-icon FAB + popover. Single notification surface.
  *
  * Behaviour:
  * - FAB shows unread badge; click toggles popover.
  * - Popover only renders unread items (read ones are filtered out, never shown).
+ * - When new unread items arrive, popover auto-opens and a chime plays —
+ *   it stays open until the user closes it (the merged behavior from the
+ *   old toast stack).
  * - Marking a card as read fades + collapses it with a 220ms CSS transition;
  *   the actual readIds/localStorage write is delayed until the animation ends
  *   so the next card slides up smoothly into the freed space.
  * - When unread hits 0 the popover shows an "All Caught Up!" empty state.
- * - Each card slot uses `content-visibility: auto` for cheap off-screen
- *   skipping — keeps the popover responsive even with ~200+ cards.
+ * - The popover container is fully transparent — each card stands on its own
+ *   tinted glass background so they read like the floating toasts they
+ *   replaced.
  * - Read state is shared with the global Mission Control sidebar via the
  *   `notifications-read-ids` localStorage key.
  */
 export function NotificationsFab({
-  channels, open, onToggleOpen, slideClass,
+  channels, open, onToggleOpen, onForceOpen, slideClass,
 }: {
   channels: FeedChannel[]
   open: boolean
   onToggleOpen: () => void
+  /** Programmatically open the popover (used when new arrivals are detected). */
+  onForceOpen: () => void
   /** Tailwind class to apply when a side panel pushes content (e.g. 'md:-translate-x-72'). */
   slideClass?: string
 }) {
   const [readIds, setReadIds] = useState<Set<string>>(new Set())
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set())
   const popoverRef = useRef<HTMLDivElement | null>(null)
+  const lastSeenRef = useRef<Map<string, string>>(new Map())
+  const isInitRef = useRef(false)
+  const readIdsRef = useRef<Set<string>>(new Set())
+  const openRef = useRef(false)
+
+  useEffect(() => { readIdsRef.current = readIds }, [readIds])
+  useEffect(() => { openRef.current = open }, [open])
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(NOTIF_READ_KEY)
-      setReadIds(new Set(raw ? JSON.parse(raw) : []))
+      const set = new Set<string>(raw ? JSON.parse(raw) : [])
+      setReadIds(set)
+      readIdsRef.current = set
     } catch { /* keep default */ }
   }, [])
+
+  // Detect new arrivals across channels and auto-open + chime.
+  // Skip the very first run so we don't toast everything that was already there
+  // when the page loaded.
+  useEffect(() => {
+    if (!isInitRef.current) {
+      for (const ch of channels) {
+        if (ch.messages.length > 0) {
+          lastSeenRef.current.set(ch.id, ch.messages[0].ts_raw ?? '')
+        }
+      }
+      isInitRef.current = true
+      return
+    }
+    let hasNewUnread = false
+    for (const ch of channels) {
+      if (!ch.messages.length || ch.error) continue
+      if (MOTD_CHANNEL_IDS.has(ch.id)) continue
+      const latest = ch.messages[0]
+      const lastTs = lastSeenRef.current.get(ch.id) ?? ''
+      if (latest.ts_raw && latest.ts_raw > lastTs) {
+        const id = `${ch.id}-${latest.id}`
+        if (!readIdsRef.current.has(id)) hasNewUnread = true
+        lastSeenRef.current.set(ch.id, latest.ts_raw)
+      }
+    }
+    if (hasNewUnread) {
+      if (!openRef.current) onForceOpen()
+      playChime()
+    }
+  }, [channels, onForceOpen])
 
   const toItem = useCallback((ch: FeedChannel, m: FeedMessage): NotifItem => ({
     id: `${ch.id}-${m.id}`,
@@ -257,13 +311,16 @@ export function NotificationsFab({
 
   return (
     <>
-      {/* Popover — anchored above the FAB */}
+      {/* Popover — anchored above the FAB. Container is transparent so each
+          card reads as an individual tinted-glass tile (matches the look of
+          the floating toasts this replaces). The header is its own glass
+          pill above the card stack. */}
       {open && (
         <div
           ref={popoverRef}
-          className={`fixed bottom-44 right-6 z-30 w-[calc(100vw-2rem)] sm:w-96 max-h-[70vh] flex flex-col rounded-2xl bg-surface-container-high/80 backdrop-blur-md border border-outline-variant/40 shadow-2xl mc-slide-in transition-transform duration-200 ease-in-out ${slideClass ?? ''}`}
+          className={`fixed bottom-[15.5rem] right-6 z-30 w-[calc(100vw-2rem)] sm:w-96 max-h-[70vh] flex flex-col gap-2 mc-slide-in transition-transform duration-200 ease-in-out ${slideClass ?? ''}`}
         >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-outline-variant/30 shrink-0">
+          <div className="glass-card rounded-xl px-3 py-2 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <Bell className="w-4 h-4 text-primary-container" />
               <span className="text-xs font-headline font-bold uppercase tracking-widest text-on-surface">Notifications</span>
@@ -277,7 +334,7 @@ export function NotificationsFab({
               {unreadCount > 0 && (
                 <button
                   onClick={handleMarkAllRead}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[9px] font-label font-black uppercase tracking-widest text-on-surface-variant/70 hover:text-on-surface hover:bg-surface-container transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[9px] font-label font-black uppercase tracking-widest text-on-surface-variant/70 hover:text-on-surface hover:bg-surface-container/40 transition-colors"
                   title="Mark all as read"
                 >
                   <CheckCheck className="w-3 h-3" />
@@ -287,7 +344,7 @@ export function NotificationsFab({
               {readIds.size > 0 && (
                 <button
                   onClick={handleMarkAllUnread}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[9px] font-label font-black uppercase tracking-widest text-on-surface-variant/70 hover:text-on-surface hover:bg-surface-container transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[9px] font-label font-black uppercase tracking-widest text-on-surface-variant/70 hover:text-on-surface hover:bg-surface-container/40 transition-colors"
                   title="Restore all as unread"
                 >
                   <RotateCcw className="w-3 h-3" />
@@ -304,9 +361,9 @@ export function NotificationsFab({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-hidden">
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-hidden">
             {unreadCount === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+              <div className="glass-card rounded-xl flex flex-col items-center justify-center py-12 gap-3 text-center">
                 <div className="w-14 h-14 rounded-full bg-primary-container/10 border border-primary-container/30 flex items-center justify-center">
                   <CheckCheck className="w-7 h-7 text-primary-container" />
                 </div>

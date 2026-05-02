@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Bell, BellOff, BellRing, BookmarkPlus, CheckCheck, Eye, EyeOff, GripVertical, LayoutTemplate, Loader2, Moon, Plus, Rss, RotateCcw, Save, Sparkles, Sun, Trash2, Tv, X, Youtube } from 'lucide-react'
+import { Bell, BellOff, BellRing, BookmarkPlus, CheckCheck, Check, Eye, EyeOff, GripVertical, LayoutTemplate, Loader2, Moon, Plus, Rss, RotateCcw, Save, Send, Sparkles, Sun, Trash2, Tv, X, Youtube } from 'lucide-react'
 import { CURRENT_VERSION } from '@/lib/patch-notes'
 import type { FeedChannel } from '@/app/api/sc-feed/route'
 import { type LayoutPreset, type UserYTChannel, type UserTwitchStreamer, type UserRSSFeed, MAX_YT_CHANNELS, MAX_TWITCH_STREAMERS, MAX_RSS_FEEDS } from './sc-feed-types'
@@ -19,7 +19,7 @@ export function SettingsPanel({
   hideAllRead, onToggleHideAllRead,
   onMarkAllRead, onMarkAllUnread,
   layoutPresets, onSavePreset, onApplyPreset, onDeletePreset, onOverwritePreset,
-  pushSupported, pushEnabled, pushPermission, pushPending, pushError, onTogglePush,
+  pushSupported, pushEnabled, pushPermission, pushPending, pushError, pushTestPending, pushTestStatus, onTogglePush, onTestPush,
   userYTChannels, onAddYT, onRemoveYT,
   userTwitchStreamers, onAddTwitch, onRemoveTwitch,
   userRSSFeeds, onAddRSS, onRemoveRSS,
@@ -46,7 +46,10 @@ export function SettingsPanel({
   pushPermission: NotificationPermission
   pushPending: boolean
   pushError: string | null
+  pushTestPending: boolean
+  pushTestStatus: 'idle' | 'sent' | 'error'
   onTogglePush: () => void
+  onTestPush: () => void
   userYTChannels: UserYTChannel[]
   onAddYT: (input: string) => Promise<string | null>
   onRemoveYT: (channelId: string) => void
@@ -166,6 +169,23 @@ export function SettingsPanel({
           </button>
           {pushError && (
             <p className="text-[10px] font-label mt-1.5 px-1 leading-snug" style={{ color: 'var(--mc-error-text)' }}>{pushError}</p>
+          )}
+          {pushEnabled && !pushPending && (
+            <button
+              onClick={onTestPush}
+              disabled={pushTestPending}
+              className="mt-1.5 w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-outline-variant/20 bg-surface-container-high/30 hover:border-primary-container/40 hover:bg-primary-container/5 transition-colors text-left disabled:opacity-50"
+              title="Send a test push to this device"
+            >
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-label font-black text-on-surface-variant/70">
+                {pushTestPending
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Sending…</>
+                  : pushTestStatus === 'sent'
+                    ? <><Check className="w-3.5 h-3.5 text-primary-container" />Sent — check your device</>
+                    : <><Send className="w-3.5 h-3.5" />Send test notification</>
+                }
+              </span>
+            </button>
           )}
         </div>
       )}
