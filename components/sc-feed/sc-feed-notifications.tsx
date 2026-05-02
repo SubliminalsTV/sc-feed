@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bell, Check, CheckCheck, ChevronDown, ChevronUp,
-  Clock, ExternalLink, RotateCcw, Sparkles, X,
+  Clock, ExternalLink, RotateCcw, X,
 } from 'lucide-react'
 import type { FeedChannel, FeedMessage } from '@/app/api/sc-feed/route'
 import {
-  MOTD_CHANNEL_IDS, NOTIF_COLORS, NOTIF_READ_KEY, PILL, PIPELINE_CHANNEL_IDS,
-  TRACKER_CATS, useFeedPrefs, type NotifItem,
+  MOTD_CHANNEL_IDS, NOTIF_COLORS, NOTIF_READ_KEY, PILL,
+  useFeedPrefs, type NotifItem,
 } from './sc-feed-types'
-import { getRsiStatusTheme, getSourceInfo, getTrackerCatKey, timeAgo } from './sc-feed-utils'
+import { getRsiStatusTheme, timeAgo } from './sc-feed-utils'
 
 export function RsiStatusCard({ rsiStatus }: {
   rsiStatus: NonNullable<FeedChannel['rsiStatus']>
@@ -72,25 +72,6 @@ function NotifCard({ item, isRead, onToggle }: {
 }) {
   const { dateFormat } = useFeedPrefs()
   const color = NOTIF_COLORS[item.channelId] ?? 'bg-surface-container text-on-surface-variant border-outline-variant/40'
-  const isTrackerSC = item.channelId === 'cig-news'
-  const trackerKey = isTrackerSC ? getTrackerCatKey(item.source ?? '') : undefined
-  const trackerCat = trackerKey ? TRACKER_CATS[trackerKey] : undefined
-  const sourceInfo = getSourceInfo(item.url)
-  const showSource = sourceInfo && item.url && !(trackerCat && sourceInfo.label === trackerCat.label)
-
-  // Build pills first so we can compute first + overflow count for the truncated metadata row.
-  type P = { key: string; node: React.ReactNode }
-  const pills: P[] = []
-  if (item.motdLabels && item.motdLabels.length > 0) {
-    pills.push({ key: 'motd', node: <span className={`${PILL} border-amber-400/60 bg-amber-400/10 text-amber-300`}><Sparkles className="w-2.5 h-2.5" />MOTD</span> })
-    item.motdLabels.slice(0, 1).forEach((label, i) => pills.push({ key: `motdsub${i}`, node: <span className={`${PILL} ${label === 'SC MOTD' ? 'border-blue-400/40 bg-blue-400/10 text-blue-300' : 'border-green-400/40 bg-green-400/10 text-green-300'}`}>{label === 'SC MOTD' ? 'SC Testing' : 'ETF Testing'}</span> }))
-  }
-  if (trackerCat) {
-    const Icon = trackerCat.icon
-    pills.push({ key: 'cat', node: <span className={`${PILL} ${trackerCat.cls}`}><Icon className="w-2.5 h-2.5" />{trackerCat.label}</span> })
-  }
-  if (showSource) pills.push({ key: 'src', node: <a href={item.url!} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className={`${PILL} ${sourceInfo!.cls}`}>{sourceInfo!.label}</a> })
-  if (item.discord_jump_url && !isTrackerSC) pills.push({ key: 'disc', node: <a href={item.discord_jump_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className={`${PILL} border-purple-500/40 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 hover:text-purple-300`}>{PIPELINE_CHANNEL_IDS.has(item.channelId) ? 'Pipeline' : 'Post'}</a> })
 
   return (
     <div className={`relative glass-card rounded-xl p-3 transition-all duration-300 ${isRead ? 'opacity-40 hover:opacity-100' : ''}`}>
@@ -127,18 +108,8 @@ function NotifCard({ item, isRead, onToggle }: {
         </p>
       )}
 
-      {/* Bottom metadata row: first pill + (+N) overflow + channel label + timestamp */}
+      {/* Bottom metadata row: channel-label tag + timestamp */}
       <div className="flex items-center gap-1 mt-2 pt-2 border-t border-outline-variant/15">
-        {pills.length > 0 && (
-          <>
-            {pills[0].node}
-            {pills.length > 1 && (
-              <span className="text-[9px] font-label font-black text-on-surface-variant/50 tabular-nums">
-                +{pills.length - 1}
-              </span>
-            )}
-          </>
-        )}
         <span className={`px-1.5 py-0.5 rounded border text-[8px] font-label font-black uppercase tracking-widest ${color}`}>
           {item.channelLabel}
         </span>
