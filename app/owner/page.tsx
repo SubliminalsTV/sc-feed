@@ -18,6 +18,22 @@ const CRON_STALE_MS = 25 * 60 * 1000
 // are genuinely quiet for days).
 const SOURCE_STALE_MS = 3 * 24 * 60 * 60 * 1000
 
+// MOTD is special: it ONLY refreshes when the browser extension scrapes an open testing-chat
+// lobby (getMotd is moderator-only, so nothing server-side can fetch it). Row age therefore
+// doubles as a liveness signal for the scraper — so MOTD gets its own tighter, LOUDER thresholds
+// instead of the dismissible 3-day amber. Amber = maybe just a quiet stretch / you haven't
+// browsed a lobby; red = the extension is almost certainly dead/uninstalled (as in the 2026-07
+// incident, where it silently removed itself and froze the MOTD for a week).
+const MOTD_CHANNELS = new Set(['motd-sc', 'motd-evo'])
+const MOTD_AMBER_MS = 24 * 60 * 60 * 1000
+const MOTD_RED_MS = 3 * 24 * 60 * 60 * 1000
+
+function motdTone(ageMs: number | null): 'green' | 'amber' | 'red' {
+  if (ageMs == null || ageMs > MOTD_RED_MS) return 'red'
+  if (ageMs > MOTD_AMBER_MS) return 'amber'
+  return 'green'
+}
+
 // Each source row links to where that source PUBLISHES (its channel/page) — so you can click
 // through and compare what the source shows vs. what SCFeed shows. NOT the latest article URL.
 // All 4 Discord channels live in the SubliminalsTV guild (303670222097874945).
@@ -72,14 +88,22 @@ function CronRow({ c }: { c: CronHealth }) {
 }
 
 function SourceRow({ s }: { s: SourceHealth }) {
-  const stale = s.ageMs == null || s.ageMs > SOURCE_STALE_MS
+  const isMotd = MOTD_CHANNELS.has(s.channelId)
+  const tone = isMotd
+    ? motdTone(s.ageMs)
+    : s.ageMs == null || s.ageMs > SOURCE_STALE_MS ? 'amber' : 'green'
   const href = SOURCE_LINKS[s.channelId]
+  // A red MOTD is an actionable failure, not a quiet feed — say so.
+  const motdHint = isMotd && tone === 'red'
+    ? 'MOTD scraper stale — reinstall the SC Feed extension and open a testing-chat lobby'
+    : undefined
+  const ageCls = tone === 'red' ? 'text-red-300/90 font-black' : 'text-on-surface-variant/70'
   const inner = (
     <>
-      <Dot tone={stale ? 'amber' : 'green'} />
+      <Dot tone={tone} />
       <span className={`text-[13px] font-body flex-1 truncate text-on-surface ${href ? 'group-hover/src:text-primary group-hover/src:underline underline-offset-2' : ''}`}>{s.label}</span>
       <span className="text-[12px] font-body text-on-surface-variant/50 w-16 text-right tabular-nums">{s.count24h} / 24h</span>
-      <span className="text-[12px] font-body text-on-surface-variant/70 w-20 text-right">{ago(s.ageMs)}</span>
+      <span className={`text-[12px] font-body w-20 text-right ${ageCls}`}>{ago(s.ageMs)}</span>
     </>
   )
   if (href) {
@@ -91,7 +115,7 @@ function SourceRow({ s }: { s: SourceHealth }) {
       </a>
     )
   }
-  return <div className="flex items-center gap-3 py-1.5">{inner}</div>
+  return <div className="flex items-center gap-3 py-1.5" title={motdHint}>{inner}</div>
 }
 
 function Stat({ label, value }: { label: string; value: string | number }) {
@@ -212,7 +236,7 @@ export default async function OwnerPage() {
             <RsiTokenLive />
           </div>
           <p className="mt-4 text-[11px] font-body text-on-surface-variant/45 leading-relaxed">
-            Pushed by the RSI Token Sync browser extension. The cron reads this (falling back to the env var), so Spectrum/MOTD stay fresh without the manual DevTools copy-paste.
+            Pushed by the SC Feed extension. The cron reads this (falling back to the env var) for Spectrum forum + dev-tracker reads. MOTD is separate — it's scraped from an open lobby by the same extension (see the MOTD rows in Sources), so if the extension dies both stop.
           </p>
         </div>
 
