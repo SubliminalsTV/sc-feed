@@ -36,7 +36,7 @@ export type Health = { db: DbHealth; cron: CronHealth[]; sources: SourceHealth[]
 
 // The 5 cron endpoints, in run order. We list them explicitly so a never-fired source still
 // shows as a (missing) row rather than silently vanishing.
-const CRON_SOURCES = ['discord', 'spectrum', 'status', 'youtube', 'prune'] as const
+const CRON_SOURCES = ['discord', 'spectrum', 'status', 'youtube', 'prune', 'watchdog'] as const
 
 // Friendly labels for the channel_ids the cron (+ Minion) write. Unknown ids fall back to raw.
 const SOURCE_LABELS: Record<string, string> = {
