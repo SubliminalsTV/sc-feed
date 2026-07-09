@@ -13,18 +13,6 @@ const SUPPORT_OPTIONS = [
     Icon: () => <Crown className="w-5 h-5" style={{ color: 'var(--mc-primary-container)' }} />,
   },
   {
-    key: 'patreon',
-    title: 'Become a Patron',
-    blurb: 'Monthly support over on Patreon.',
-    href: 'https://www.patreon.com/c/SubliminalsTV',
-    accent: '#FF424D',
-    Icon: () => (
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="#FF424D" aria-hidden="true">
-        <path d="M22.957 7.21c-.004-3.064-2.391-5.576-5.191-6.482-3.478-1.125-8.064-.962-11.384.604C2.357 3.231 1.093 7.391 1.046 11.54c-.039 3.411.302 12.396 5.369 12.46 3.765.047 4.326-4.804 6.068-7.141 1.24-1.662 2.836-2.132 4.801-2.618 3.376-.836 5.678-3.501 5.673-7.031Z" />
-      </svg>
-    ),
-  },
-  {
     key: 'twitch',
     title: 'Subscribe on Twitch',
     blurb: 'Subscribe or gift subs on the SubliminalsTV stream.',
@@ -33,6 +21,18 @@ const SUPPORT_OPTIONS = [
     Icon: () => (
       <svg viewBox="0 0 24 24" width="18" height="18" fill="#9146FF" aria-hidden="true">
         <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z" />
+      </svg>
+    ),
+  },
+  {
+    key: 'patreon',
+    title: 'Become a Patron',
+    blurb: 'Monthly support over on Patreon.',
+    href: 'https://www.patreon.com/c/SubliminalsTV',
+    accent: '#FF424D',
+    Icon: () => (
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="#FF424D" aria-hidden="true">
+        <path d="M22.957 7.21c-.004-3.064-2.391-5.576-5.191-6.482-3.478-1.125-8.064-.962-11.384.604C2.357 3.231 1.093 7.391 1.046 11.54c-.039 3.411.302 12.396 5.369 12.46 3.765.047 4.326-4.804 6.068-7.141 1.24-1.662 2.836-2.132 4.801-2.618 3.376-.836 5.678-3.501 5.673-7.031Z" />
       </svg>
     ),
   },
@@ -59,7 +59,7 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
 
         <div className="p-5 space-y-4">
           <p className="text-[12.5px] font-body text-on-surface-variant/70 leading-relaxed">
-            SC Feed is free and ad-light. If it saves you time keeping up with Star Citizen, here are the ways to keep it running and back the channel:
+            SC Feed is free for everyone and supported by those who have the means. If it saves you time keeping up with Star Citizen, here are the ways to back and keep development going:
           </p>
 
           <div className="space-y-2.5">
