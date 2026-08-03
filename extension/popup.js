@@ -35,13 +35,23 @@ function renderFeed(items) {
   }
 }
 
+// Last active MOTD scan — one line per lobby, so a lobby that stopped rendering is visible here
+// rather than only showing up as a stale row on the owner dashboard days later.
+function renderMotdScan(scan) {
+  const el = $('motd')
+  if (!scan) { el.textContent = 'MOTD scan: never run'; return }
+  const parts = (scan.results || []).map(r => `${r.channelId.replace('motd-', '')} ${r.ok ? (r.changed ? '✓ new' : '✓') : `✗ ${r.msg || ''}`}`)
+  el.textContent = `MOTD scan ${timeAgo(scan.at)} ago — ${parts.join(' · ') || 'no lobbies'}`
+}
+
 async function load() {
-  const c = await api.storage.local.get(['endpoint', 'secret', 'feedUrl', 'notify', 'latestItems', 'lastStatus'])
+  const c = await api.storage.local.get(['endpoint', 'secret', 'feedUrl', 'notify', 'latestItems', 'lastStatus', 'lastMotdScan'])
   $('feedUrl').value = c.feedUrl || ''
   $('endpoint').value = c.endpoint || ''
   $('secret').value = c.secret || ''
   $('notify').checked = c.notify !== false
   renderToken(c.lastStatus)
+  renderMotdScan(c.lastMotdScan)
   renderFeed(c.latestItems)
   // Opening the popup counts as "seen" — clear the badge — and refresh in the background.
   api.runtime.sendMessage({ type: 'mark-seen' }).catch(() => {})
@@ -65,6 +75,14 @@ $('push').addEventListener('click', async () => {
   const { lastStatus } = await api.storage.local.get(['lastStatus'])
   renderToken(lastStatus)
   $('msg').textContent = lastStatus?.ok ? 'Token synced.' : `Failed: ${lastStatus?.msg ?? '?'}`
+})
+
+$('scan').addEventListener('click', async () => {
+  $('msg').textContent = 'Scanning lobbies… (up to ~40s)'
+  await api.runtime.sendMessage({ type: 'scan-motd-now' }).catch(() => {})
+  const { lastMotdScan } = await api.storage.local.get(['lastMotdScan'])
+  renderMotdScan(lastMotdScan)
+  $('msg').textContent = 'Scan done.'
 })
 
 $('open').addEventListener('click', () => api.tabs.create({ url: feedUrl() }))

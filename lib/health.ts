@@ -15,6 +15,10 @@ export type SourceHealth = {
   lastUrl: string | null
   count24h: number
   total: number
+  // MOTD channels only: age of the last extension SCRAPE, stamped whether or not the text changed
+  // (see /api/owner/motd). This — not ageMs — is the scraper's liveness signal, because the MOTD
+  // can sit unchanged for days while the scraper is perfectly healthy.
+  scanAgeMs?: number | null
 }
 export type CronHealth = {
   source: string
@@ -69,7 +73,7 @@ export async function getHealth(): Promise<Health> {
   const dbHealth: DbHealth = { ok: true, latencyMs: Date.now() - t0 }
 
   const now = Date.now()
-  const [sourceRows, countRows, hbRows] = await Promise.all([
+  const [sourceRows, countRows, hbRows, scanRows] = await Promise.all([
     // distinct-on grabs the newest row per channel (for its url + ts) and joins the per-channel
     // counts. JS re-sorts by recency afterward (distinct-on forces channel_id-first ordering).
     sql`
@@ -100,7 +104,12 @@ export async function getHealth(): Promise<Health> {
         (select count(*) from scfeed.sc_feed_push_subscriptions)                                   as push_subs
     `,
     db.select().from(config).where(like(config.key, 'cron_hb_%')),
+    db.select().from(config).where(like(config.key, 'motd_scan_%')),
   ])
+
+  const scanAge = new Map<string, number | null>(
+    scanRows.map((r) => [r.key.replace('motd_scan_', ''), r.updated ? now - r.updated.getTime() : null]),
+  )
 
   const sources: SourceHealth[] = sourceRows
     .map((r) => {
@@ -114,6 +123,7 @@ export async function getHealth(): Promise<Health> {
         lastUrl: /^https?:\/\//i.test(url) ? url : null,
         count24h: Number(r.count_24h),
         total: Number(r.total),
+        ...(scanAge.has(r.channel_id as string) ? { scanAgeMs: scanAge.get(r.channel_id as string) } : {}),
       }
     })
     .sort((a, b) => (a.ageMs ?? Infinity) - (b.ageMs ?? Infinity))

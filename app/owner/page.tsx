@@ -18,19 +18,21 @@ const CRON_STALE_MS = 25 * 60 * 1000
 // are genuinely quiet for days).
 const SOURCE_STALE_MS = 3 * 24 * 60 * 60 * 1000
 
-// MOTD is special: it ONLY refreshes when the browser extension scrapes an open testing-chat
-// lobby (getMotd is moderator-only, so nothing server-side can fetch it). Row age therefore
-// doubles as a liveness signal for the scraper — so MOTD gets its own tighter, LOUDER thresholds
-// instead of the dismissible 3-day amber. Amber = maybe just a quiet stretch / you haven't
-// browsed a lobby; red = the extension is almost certainly dead/uninstalled (as in the 2026-07
-// incident, where it silently removed itself and froze the MOTD for a week).
+// MOTD is special: it ONLY refreshes when the browser extension scrapes a testing-chat lobby
+// (getMotd is moderator-only, so nothing server-side can fetch it). It is therefore the one
+// source whose health is NOT its content age — the MOTD can legitimately sit unchanged for days.
+// Tone comes from `scanAgeMs`, the extension's per-scrape heartbeat (stamped every 15min whether
+// or not the text changed), which is the only signal that distinguishes "quiet" from "dead".
+// Amber = a scan cycle or two missed / PC was off; red = the extension is almost certainly
+// dead or disabled (as in the 2026-07 incident, where it silently removed itself and froze the
+// MOTD for a week behind a perfectly innocent-looking dashboard).
 const MOTD_CHANNELS = new Set(['motd-sc', 'motd-evo'])
-const MOTD_AMBER_MS = 24 * 60 * 60 * 1000
-const MOTD_RED_MS = 3 * 24 * 60 * 60 * 1000
+const MOTD_SCAN_AMBER_MS = 6 * 60 * 60 * 1000
+const MOTD_SCAN_RED_MS = 24 * 60 * 60 * 1000
 
-function motdTone(ageMs: number | null): 'green' | 'amber' | 'red' {
-  if (ageMs == null || ageMs > MOTD_RED_MS) return 'red'
-  if (ageMs > MOTD_AMBER_MS) return 'amber'
+function motdTone(scanAgeMs: number | null | undefined): 'green' | 'amber' | 'red' {
+  if (scanAgeMs == null || scanAgeMs > MOTD_SCAN_RED_MS) return 'red'
+  if (scanAgeMs > MOTD_SCAN_AMBER_MS) return 'amber'
   return 'green'
 }
 
@@ -90,12 +92,15 @@ function CronRow({ c }: { c: CronHealth }) {
 function SourceRow({ s }: { s: SourceHealth }) {
   const isMotd = MOTD_CHANNELS.has(s.channelId)
   const tone = isMotd
-    ? motdTone(s.ageMs)
+    ? motdTone(s.scanAgeMs)
     : s.ageMs == null || s.ageMs > SOURCE_STALE_MS ? 'amber' : 'green'
   const href = SOURCE_LINKS[s.channelId]
-  // A red MOTD is an actionable failure, not a quiet feed — say so.
-  const motdHint = isMotd && tone === 'red'
-    ? 'MOTD scraper stale — reinstall the SC Feed extension and open a testing-chat lobby'
+  // A red MOTD is an actionable failure, not a quiet feed — say so. Spell out both clocks, since
+  // "last scan" and "last change" mean very different things and only the first is a fault.
+  const motdHint = isMotd
+    ? tone === 'red'
+      ? `MOTD scraper stale — last scan ${ago(s.scanAgeMs ?? null)}. Check the SC Feed extension in Chrome.`
+      : `Last scrape ${ago(s.scanAgeMs ?? null)} · MOTD text last changed ${ago(s.ageMs)}`
     : undefined
   const ageCls = tone === 'red' ? 'text-red-300/90 font-black' : 'text-on-surface-variant/70'
   const inner = (
@@ -103,7 +108,9 @@ function SourceRow({ s }: { s: SourceHealth }) {
       <Dot tone={tone} />
       <span className={`text-[13px] font-body flex-1 truncate text-on-surface ${href ? 'group-hover/src:text-primary group-hover/src:underline underline-offset-2' : ''}`}>{s.label}</span>
       <span className="text-[12px] font-body text-on-surface-variant/50 w-16 text-right tabular-nums">{s.count24h} / 24h</span>
-      <span className={`text-[12px] font-body w-20 text-right ${ageCls}`}>{ago(s.ageMs)}</span>
+      {/* MOTD rows show SCRAPE age — that's what their dot is judging. Everything else shows
+          content age. Hover for the other clock. */}
+      <span className={`text-[12px] font-body w-20 text-right ${ageCls}`}>{ago(isMotd ? (s.scanAgeMs ?? null) : s.ageMs)}</span>
     </>
   )
   if (href) {
@@ -236,7 +243,7 @@ export default async function OwnerPage() {
             <RsiTokenLive />
           </div>
           <p className="mt-4 text-[11px] font-body text-on-surface-variant/45 leading-relaxed">
-            Pushed by the SC Feed extension. The cron reads this (falling back to the env var) for Spectrum forum + dev-tracker reads. MOTD is separate — it's scraped from an open lobby by the same extension (see the MOTD rows in Sources), so if the extension dies both stop.
+            Pushed by the SC Feed extension in Chrome. The cron reads this (falling back to the env var) for Spectrum forum + dev-tracker reads. MOTD is separate — the same extension keeps pinned lobby tabs and re-scrapes them every 15min (see the MOTD rows in Sources), so if the extension dies both stop. Keep RSI signed in <em>only</em> in Chrome: RSI allows one session per account, so a second signed-in browser silently invalidates this token.
           </p>
         </div>
 

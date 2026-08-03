@@ -7,11 +7,13 @@ import { getConfigStatus, getConfigValue, setConfigValue } from '@/lib/sc-config
 // token push AND the MOTD scrape, and it can silently die (self-uninstall, disabled, browser
 // closed) — which is exactly what froze the MOTD for a week in 2026-07 with nothing flagging it.
 //
-// The extension re-pushes the token every 6h on a timer (background.js TOKEN_ALARM), so
-// `rsi_token.updated` is a reliable liveness heartbeat independent of whether the MOTD content
-// changed. This endpoint (fired by the VPS host crontab, same as the other cron routes) checks
-// that heartbeat + MOTD freshness and fires a Discord webhook when either goes stale — a PUSH
-// alert, because the failure mode is precisely "nobody was looking at the dashboard".
+// Both of its jobs now stamp their own timer-driven heartbeat, so liveness is measured directly
+// rather than inferred from content: the token is re-pushed every 6h (background.js TOKEN_ALARM)
+// and every MOTD lobby is re-scraped every 15min (MOTD_ALARM), each scrape stamping
+// `motd_scan_<channel>` whether or not the text changed. This endpoint (fired by the VPS host
+// crontab, same as the other cron routes) checks those two heartbeats and fires a Discord webhook
+// when either goes stale — a PUSH alert, because the failure mode is precisely "nobody was
+// looking at the dashboard".
 //
 // De-duped via a `watchdog_state` config row: one alert on the transition to stale, a reminder
 // every WATCHDOG_RENOTIFY_HOURS while it stays stale, and a recovery ping when it clears.
@@ -19,9 +21,9 @@ import { getConfigStatus, getConfigValue, setConfigValue } from '@/lib/sc-config
 export const dynamic = 'force-dynamic'
 
 const H = 3600_000
-const TOKEN_STALE_MS = (Number(process.env.WATCHDOG_TOKEN_STALE_HOURS) || 12) * H
-const MOTD_STALE_MS  = (Number(process.env.WATCHDOG_MOTD_STALE_HOURS)  || 72) * H
-const RENOTIFY_MS    = (Number(process.env.WATCHDOG_RENOTIFY_HOURS)    || 24) * H
+const TOKEN_STALE_MS = (Number(process.env.WATCHDOG_TOKEN_STALE_HOURS)     || 12) * H
+const SCAN_STALE_MS  = (Number(process.env.WATCHDOG_MOTD_SCAN_STALE_HOURS) || 24) * H
+const RENOTIFY_MS    = (Number(process.env.WATCHDOG_RENOTIFY_HOURS)        || 24) * H
 
 const MOTD_CHANNELS = ['motd-sc', 'motd-evo'] as const
 const MOTD_LABEL: Record<string, string> = { 'motd-sc': 'SC MOTD', 'motd-evo': 'Evo MOTD' }
@@ -65,7 +67,19 @@ export async function GET(request: Request) {
     const tokenAgeMs = tok.updated ? now - new Date(tok.updated).getTime() : null
     const tokenStale = tokenAgeMs == null || tokenAgeMs > TOKEN_STALE_MS
 
-    // 2. MOTD freshness — newest row per MOTD channel. Softer signal (can be genuinely quiet).
+    // 2. MOTD SCRAPE liveness — the extension posts every scrape (changed or not) and the ingest
+    //    route stamps `motd_scan_<channel>`, so this age tracks the scraper itself. Deliberately
+    //    NOT message age: the MOTD can legitimately sit unchanged for days, and alarming on that
+    //    trained the alert to be ignored while saying nothing about whether the scraper was alive.
+    const scanAge: Record<string, number | null> = {}
+    for (const c of MOTD_CHANNELS) {
+      const st = await getConfigStatus(`motd_scan_${c}`)
+      scanAge[c] = st.updated ? now - new Date(st.updated).getTime() : null
+    }
+    const scanStale = MOTD_CHANNELS.filter((c) => scanAge[c] == null || (scanAge[c] as number) > SCAN_STALE_MS)
+
+    // 3. MOTD content age — informational only, shown in the embed so a genuinely quiet lobby is
+    //    visible without being an alarm.
     const rows = await sql`
       select channel_id, max(ts_raw) as last_ts
       from scfeed.sc_feed_messages
@@ -77,12 +91,11 @@ export async function GET(request: Request) {
       const ts = r.last_ts ? new Date(r.last_ts as string).getTime() : null
       motdAge[r.channel_id as string] = ts == null ? null : now - ts
     }
-    const motdStale = MOTD_CHANNELS.some((c) => motdAge[c] == null || (motdAge[c] as number) > MOTD_STALE_MS)
 
-    const stale = tokenStale || motdStale
+    const stale = tokenStale || scanStale.length > 0
     const reasons: string[] = []
     if (tokenStale) reasons.push(`extension heartbeat stale — token last pushed ${ago(tokenAgeMs)}`)
-    if (motdStale) reasons.push('MOTD not refreshed within threshold')
+    for (const c of scanStale) reasons.push(`${MOTD_LABEL[c]} scraper stale — last scan ${ago(scanAge[c])}`)
 
     // De-dup state.
     let state = EMPTY_STATE
@@ -90,7 +103,11 @@ export async function GET(request: Request) {
 
     const fields = [
       { name: 'Token push', value: ago(tokenAgeMs), inline: true },
-      ...MOTD_CHANNELS.map((c) => ({ name: MOTD_LABEL[c], value: ago(motdAge[c]), inline: true })),
+      ...MOTD_CHANNELS.map((c) => ({
+        name: `${MOTD_LABEL[c]} scan`,
+        value: `${ago(scanAge[c])}\n(content ${ago(motdAge[c])})`,
+        inline: true,
+      })),
     ]
 
     let action = 'none'
@@ -102,7 +119,7 @@ export async function GET(request: Request) {
       if (firstTime || dueAgain) {
         delivery = await sendDiscord({
           title: '⚠️ SC Feed: extension appears down',
-          description: `${reasons.join('\n')}\n\n**Fix:** reinstall the SC Feed extension in Zen and open a testing-chat lobby (38230 / 1355241).`,
+          description: `${reasons.join('\n')}\n\n**Fix:** check the SC Feed extension in Chrome (\`chrome://extensions\`) — it manages its own pinned lobby tabs, so if scans stopped it is disabled, removed, or logged out of RSI.`,
           color: 0xffb231,
           fields,
           footer: { text: 'SC Feed watchdog · sc-feed.subliminal.gg/owner' },
@@ -120,7 +137,7 @@ export async function GET(request: Request) {
     } else if (state.alerting) {
       delivery = await sendDiscord({
         title: '✅ SC Feed: extension recovered',
-        description: 'Token push + MOTD are fresh again.',
+        description: 'Token push + MOTD scrapes are running again.',
         color: 0x51cf66,
         fields,
         footer: { text: 'SC Feed watchdog' },
@@ -132,7 +149,7 @@ export async function GET(request: Request) {
 
     const summary = {
       ok: true, stale, action,
-      tokenAgeMs, motdAge,
+      tokenAgeMs, scanAge, motdAge,
       ...(delivery ? { delivered: delivery.sent, deliveryNote: delivery.reason } : {}),
     }
     await stampCronHeartbeat('watchdog', summary)

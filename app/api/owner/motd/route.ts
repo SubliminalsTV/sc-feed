@@ -2,12 +2,23 @@ import { NextResponse } from 'next/server'
 import { timingSafeEqual } from 'node:crypto'
 import { auth } from '@/auth'
 import { upsertMessage, SPECTRUM_MOTDS } from '@/app/api/cron/sc-feed/_shared'
+import { getConfigValue, setConfigValue } from '@/lib/sc-config'
 
-// Owner-only endpoint that ingests a Spectrum MOTD scraped by the browser extension's content
-// script. RSI made `getMotd` moderator-only (denied even to a logged-in Evocati member from a
-// non-browser context), so the cron can no longer fetch the MOTD — but it's rendered in the
-// lobby page, where the extension reads it and POSTs the text here. Owner-gated exactly like
-// /api/owner/rsi-token: an owner NextAuth session OR the owner push secret.
+// Owner-only endpoint that ingests a Spectrum MOTD scraped by the browser extension. RSI made
+// `getMotd` moderator-only (denied even to a logged-in Evocati member from a non-browser context),
+// so the cron can no longer fetch the MOTD — but it's rendered in the lobby page, where the
+// extension reads it and POSTs the text here. Owner-gated exactly like /api/owner/rsi-token:
+// an owner NextAuth session OR the owner push secret.
+//
+// The extension posts on EVERY scrape, including unchanged ones, and this route decides which it
+// is by comparing against the last signature it stored. That split matters:
+//   • a real change  → upsert a new MOTD card (new msg_id, honest ts_raw)
+//   • an unchanged   → stamp the scrape heartbeat ONLY
+// Never re-upsert unchanged text: upsertMessage overwrites ts_raw on an existing row, so doing so
+// would make the card look perpetually new and would mask a dead scraper behind fresh timestamps.
+// The heartbeat (`motd_scan_<channelId>`) is what the watchdog reads for liveness — it separates
+// "scraper alive, CIG just hasn't changed the MOTD" from "scraper dead", which content age alone
+// cannot do. That ambiguity is what let the scraper stay dead for a week in 2026-07.
 
 export const dynamic = 'force-dynamic'
 
@@ -49,11 +60,20 @@ export async function POST(req: Request) {
   if (!LABELS[channelId]) return NextResponse.json({ error: 'unknown channelId' }, { status: 400 })
   if (body.length < 4) return NextResponse.json({ error: 'empty MOTD body' }, { status: 422 })
 
-  const sig = (b.sig && /^[a-f0-9]{1,16}$/.test(b.sig)) ? b.sig : hashStr(body)
+  // The server hashes the body itself rather than trusting the client's `sig`, so the
+  // changed/unchanged verdict can't drift when an extension is reinstalled or its cache cleared.
+  const sig = hashStr(body)
+  const scanKey = `motd_scan_${channelId}`
   const title = body.replace(/\s+/g, ' ').trim().slice(0, 150)
   const nowIso = new Date().toISOString()
 
   try {
+    const lastSig = await getConfigValue(scanKey)
+    // Stamp the scrape heartbeat first: even a failed upsert below still proves the scraper ran.
+    await setConfigValue(scanKey, sig, { updated_via: 'extension' })
+
+    if (lastSig === sig) return NextResponse.json({ ok: true, isNew: false, unchanged: true })
+
     const isNew = await upsertMessage(channelId, LABELS[channelId], {
       msg_id:        `motd-${channelId}-${sig}`,
       title,
@@ -64,7 +84,7 @@ export async function POST(req: Request) {
       ts_raw:        nowIso,
       image:         '',
     })
-    return NextResponse.json({ ok: true, isNew })
+    return NextResponse.json({ ok: true, isNew, unchanged: false })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }

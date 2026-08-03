@@ -1,14 +1,17 @@
-// SC Feed companion (owner tool, Chrome + Firefox/Zen)
+// SC Feed companion (owner tool — Chrome is the maintained target; Firefox build is frozen)
 //
 // 1. RSI token sync — reads the HttpOnly `Rsi-Token` cookie from robertsspaceindustries.com
 //    and pushes it to SC Feed's owner endpoint when it changes. Used for forum/dev-tracker reads.
-// 2. MOTD scrape ingest — receives the Spectrum MOTD from the content script (content.js) and
-//    pushes it to SC Feed (RSI made getMotd moderator-only, so it must be read in-browser).
+// 2. MOTD scrape — RSI made getMotd moderator-only, so the MOTD can only be read from a rendered
+//    lobby page. Two paths feed it: the passive content script (content.js, instant when Sub is
+//    browsing Spectrum) and an ACTIVE alarm-driven scan that keeps pinned lobby tabs alive and
+//    injects the extractor on a timer. The active path exists because the passive one goes silent
+//    whenever no lobby is open or Chrome's Memory Saver discards the tab.
 // 3. Feed awareness — polls /api/sc-feed, shows the unread count on the toolbar badge, and
 //    fires a desktop notification when new items land (even with SC Feed closed).
 //
-// Cross-browser, no build step: Firefox exposes promise-based `browser.*`, Chrome MV3 the
-// same on `chrome.*` for the APIs used here (cookies, storage, alarms, notifications, etc.).
+// Cross-browser by construction: Firefox exposes promise-based `browser.*`, Chrome MV3 the same
+// on `chrome.*` for the APIs used here (cookies, storage, alarms, scripting, notifications).
 const api = globalThis.browser ?? globalThis.chrome
 
 const RSI_URL = 'https://robertsspaceindustries.com'
@@ -17,7 +20,10 @@ const DEFAULT_ENDPOINT = 'https://sc-feed.subliminal.gg/api/owner/rsi-token'
 const DEFAULT_FEED = 'https://sc-feed.subliminal.gg'
 const TOKEN_ALARM = 'rsi-token-resync'
 const FEED_ALARM = 'feed-poll'
+const MOTD_ALARM = 'motd-scan'
 let debounce = null
+
+const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 async function getConfig() {
   const c = await api.storage.local.get(['endpoint', 'secret', 'feedUrl', 'notify'])
@@ -82,29 +88,101 @@ async function pushToken(reason) {
   }
 }
 
-// ---------- MOTD scrape ingest (from the Spectrum content script) ----------
-// content.js reads the MOTD off the rendered lobby and sends it here; we de-dupe by content
-// signature (per channel) so only real changes get pushed to the owner MOTD endpoint.
-function motdSig(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(16) }
+// ---------- MOTD scrape ----------
 
+// Lobby → SC Feed channel. Mirrors LOBBY_CHANNEL in content.js and SPECTRUM_MOTDS on the backend.
+const LOBBIES = [
+  { lobbyId: '38230',   channelId: 'motd-sc',  url: `${RSI_URL}/spectrum/community/SC/lobby/38230` },
+  { lobbyId: '1355241', channelId: 'motd-evo', url: `${RSI_URL}/spectrum/community/SC/lobby/1355241` },
+]
+
+// Push a scraped MOTD. This ALWAYS posts, even when the text is unchanged — the server compares
+// signatures and decides whether it's a real change or just a liveness ping. Client-side dedupe
+// used to live here, and that was the bug: an unchanged MOTD and a dead scraper looked identical
+// from the server's side, which is how a dead scraper went unnoticed for a week in 2026-07.
 async function ingestMotd({ channelId, body, url }) {
-  if (!channelId || !body) return
-  const sig = motdSig(body)
-  const key = `motdSig_${channelId}`
-  const store = await api.storage.local.get([key])
-  if (store[key] === sig) return // unchanged since last push
+  if (!channelId || !body) return { ok: false, msg: 'empty scrape' }
   const { feedUrl, secret } = await getConfig()
   try {
     const res = await fetch(`${feedUrl}/api/owner/motd`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(secret ? { Authorization: `Bearer ${secret}` } : {}) },
-      body: JSON.stringify({ channelId, body, url, sig }),
+      body: JSON.stringify({ channelId, body, url }),
     })
-    if (res.ok) await api.storage.local.set({ [key]: sig, lastMotd: { ok: true, channelId, at: now() } })
-    else await api.storage.local.set({ lastMotd: { ok: false, channelId, msg: `endpoint ${res.status}`, at: now() } })
+    const out = res.ok
+      ? { ok: true, changed: !!(await res.json().catch(() => ({}))).isNew }
+      : { ok: false, msg: `endpoint ${res.status}` }
+    await api.storage.local.set({ lastMotd: { channelId, at: now(), ...out } })
+    return out
   } catch (e) {
-    await api.storage.local.set({ lastMotd: { ok: false, channelId, msg: String(e), at: now() } })
+    const out = { ok: false, msg: String(e) }
+    await api.storage.local.set({ lastMotd: { channelId, at: now(), ...out } })
+    return out
   }
+}
+
+// Injected into the lobby page, so it must be self-contained — no closure over extension scope.
+// Mirrors extractMotd() in content.js; keep the two in sync.
+function extractMotdInPage() {
+  const el = document.querySelector('.lobby-message--motd')
+  if (!el) return null
+  const wrap = el.querySelector('.lobby-message__wrapper') || el
+  const clone = wrap.cloneNode(true)
+  clone.querySelector('.lobby-message__header')?.remove()
+  clone.querySelector('.lobby-message__dismiss')?.remove()
+  const body = (clone.innerText || '').trim()
+  if (!body) return null
+  const link = wrap.querySelector('a[href]')
+  return { body, url: link ? link.href : '' }
+}
+
+async function findLobbyTab(lobbyId) {
+  let tabs = []
+  try { tabs = await api.tabs.query({ url: `${RSI_URL}/spectrum/*` }) } catch { return null }
+  const re = new RegExp(`/lobby/${lobbyId}(?:[/?#]|$)`)
+  return tabs.find(t => re.test(t.url || '')) || null
+}
+
+// Guarantee a scrapeable tab for this lobby: reuse one Sub already has open, revive it if Chrome's
+// Memory Saver discarded it (executeScript can't reach a discarded tab), else open our own pinned
+// background tab. Never steals focus.
+async function ensureLobbyTab(lobby) {
+  const existing = await findLobbyTab(lobby.lobbyId)
+  if (!existing) {
+    try { return await api.tabs.create({ url: lobby.url, pinned: true, active: false }) } catch { return null }
+  }
+  if (existing.discarded) {
+    try { await api.tabs.reload(existing.id) } catch { /* gone between query and reload */ }
+  }
+  return existing
+}
+
+// Spectrum is an SPA and the MOTD banner renders well after load, so poll rather than scrape once.
+// Each executeScript call also resets the MV3 service-worker idle timer, keeping us alive.
+async function scrapeLobby(lobby, { attempts = 10, delayMs = 2000 } = {}) {
+  const tab = await ensureLobbyTab(lobby)
+  if (!tab?.id) return null
+  for (let i = 0; i < attempts; i++) {
+    await sleep(delayMs)
+    try {
+      const out = await api.scripting.executeScript({ target: { tabId: tab.id }, func: extractMotdInPage })
+      const result = out?.[0]?.result
+      if (result?.body) return result
+    } catch { /* still loading, discarded mid-flight, or navigated away — retry */ }
+  }
+  return null
+}
+
+async function runMotdScan(reason) {
+  const results = []
+  for (const lobby of LOBBIES) {
+    const scraped = await scrapeLobby(lobby)
+    results.push(scraped
+      ? { channelId: lobby.channelId, ...(await ingestMotd({ channelId: lobby.channelId, ...scraped })) }
+      : { channelId: lobby.channelId, ok: false, msg: 'MOTD not rendered' })
+  }
+  await api.storage.local.set({ lastMotdScan: { at: now(), reason, results } })
+  return results
 }
 
 // ---------- "Send to SC Feed" (right-click → save) ----------
@@ -224,9 +302,11 @@ api.cookies.onChanged.addListener(({ cookie, removed }) => {
 
 api.alarms.create(TOKEN_ALARM, { periodInMinutes: 360 })
 api.alarms.create(FEED_ALARM, { periodInMinutes: 5 })
+api.alarms.create(MOTD_ALARM, { periodInMinutes: 15 })
 api.alarms.onAlarm.addListener(a => {
   if (a.name === TOKEN_ALARM) pushToken('alarm')
   if (a.name === FEED_ALARM) pollFeed('alarm')
+  if (a.name === MOTD_ALARM) runMotdScan('alarm')
 })
 
 api.notifications?.onClicked?.addListener(async () => {
@@ -239,9 +319,10 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'poll-now') { pollFeed('manual').then(() => sendResponse({ done: true })); return true }
   if (msg?.type === 'mark-seen') { markSeen().then(() => sendResponse({ done: true })); return true }
   if (msg?.type === 'motd') { ingestMotd(msg).then(() => sendResponse({ done: true })); return true }
+  if (msg?.type === 'scan-motd-now') { runMotdScan('manual').then(r => sendResponse({ done: true, results: r })); return true }
 })
 
-// Prime on install/startup so the badge + popup have data immediately, and (re)create the
-// right-click "Send to SC Feed" menu.
-api.runtime.onInstalled?.addListener?.(() => { pollFeed('seed'); setupContextMenus() })
-api.runtime.onStartup?.addListener?.(() => { pollFeed('seed'); setupContextMenus() })
+// Prime on install/startup so the badge + popup have data immediately, (re)create the right-click
+// "Send to SC Feed" menu, and get the lobby tabs up so the first MOTD scan has something to read.
+api.runtime.onInstalled?.addListener?.(() => { pollFeed('seed'); setupContextMenus(); runMotdScan('installed') })
+api.runtime.onStartup?.addListener?.(() => { pollFeed('seed'); setupContextMenus(); runMotdScan('startup') })
