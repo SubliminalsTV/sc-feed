@@ -48,14 +48,22 @@ async function readCookie() {
   try { const s = await api.cookies.getAllCookieStores(); if (s && s.length) stores = s } catch { /* fall back to default */ }
   const names = new Set()
   const candidates = []
+  // Query BOTH ways. A `domain` filter matches on the cookie's stored domain attribute, which
+  // differs for host-only (`robertsspaceindustries.com`) vs domain (`.robertsspaceindustries.com`)
+  // cookies; a `url` filter instead matches by host+path scope. Chrome and Firefox disagree at
+  // those edges, and a domain-only query has been seen returning just the analytics cookies while
+  // missing the first-party session ones. Querying both and unioning costs nothing.
+  const queries = [{ url: `${RSI_URL}/` }, { domain: 'robertsspaceindustries.com' }]
   for (const st of stores) {
-    const opts = { domain: 'robertsspaceindustries.com' }
-    if (st.id) opts.storeId = st.id
-    let cs = []
-    try { cs = await api.cookies.getAll(opts) } catch { /* store unreadable */ }
-    for (const c of cs) {
-      names.add(c.name)
-      if (c.name.toLowerCase() === COOKIE.toLowerCase() && c.value) candidates.push(c.value)
+    for (const q of queries) {
+      const opts = { ...q }
+      if (st.id) opts.storeId = st.id
+      let cs = []
+      try { cs = await api.cookies.getAll(opts) } catch { /* store unreadable */ }
+      for (const c of cs) {
+        names.add(c.name)
+        if (c.name.toLowerCase() === COOKIE.toLowerCase() && c.value) candidates.push(c.value)
+      }
     }
   }
   lastScan = { stores: stores.length, names: [...names], candidates: candidates.length }
@@ -68,9 +76,15 @@ async function pushToken(reason) {
   const { value: token } = await readCookie()
   const stamp = at => ({ at, reason })
   if (!token) {
-    const msg = lastScan.names.length
-      ? `Rsi-Token not found — saw: ${lastScan.names.slice(0, 8).join(', ')}`
-      : `no RSI cookies visible across ${lastScan.stores} store(s) — grant host access + log into RSI`
+    // Distinguish the three failure modes, because they need completely different fixes and the
+    // old catch-all message ("saw: CookieConsent, __stripe_mid…") read like a permissions bug when
+    // it usually means this Chrome profile simply isn't signed in to RSI.
+    const firstParty = lastScan.names.filter(n => /^(rsi[-_]|_rsi_|cig[-_])/i.test(n))
+    const msg = firstParty.length
+      ? `signed in, but no ${COOKIE} cookie — saw ${firstParty.join(', ')}`
+      : lastScan.names.length
+        ? `not signed in to RSI in this browser profile — ${lastScan.names.length} cookies, none first-party (${lastScan.names.slice(0, 5).join(', ')})`
+        : `no cookies visible across ${lastScan.stores} store(s) — check this extension's site access for robertsspaceindustries.com`
     await api.storage.local.set({ lastStatus: { ok: false, msg, ...stamp(now()) } })
     return
   }
