@@ -85,6 +85,26 @@ $('scan').addEventListener('click', async () => {
   $('msg').textContent = 'Scan done.'
 })
 
+// Renders the discriminator plainly: cookie visibility per store, then whether this extension can
+// see any RSI tab at all. Zero tabs while RSI is open elsewhere = wrong Chrome profile.
+$('diag').addEventListener('click', async () => {
+  $('msg').textContent = 'Diagnosing…'
+  const res = await api.runtime.sendMessage({ type: 'diagnose' }).catch(() => null)
+  const d = res?.diag || (await api.storage.local.get(['lastDiag'])).lastDiag
+  const el = $('diagout')
+  if (!d) { $('msg').textContent = 'Diagnose failed.'; return }
+  const lines = []
+  for (const s of d.stores) {
+    lines.push(`store ${s.id}: ${s.count} cookies, ${s.httpOnly} httpOnly`)
+    lines.push(`  ${s.names.join(', ') || '(none)'}`)
+  }
+  lines.push(`RSI tabs visible: ${d.tabs.length}`)
+  for (const t of d.tabs) lines.push(`  ${t.title || '(no title)'}`)
+  el.textContent = lines.join('\n')
+  el.style.display = 'block'
+  $('msg').textContent = 'Diagnose done — copy the box above.'
+})
+
 $('open').addEventListener('click', () => api.tabs.create({ url: feedUrl() }))
 
 $('capture').addEventListener('click', () => {

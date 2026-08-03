@@ -72,6 +72,43 @@ async function readCookie() {
   return { value }
 }
 
+// One-shot self-diagnosis for "Rsi-Token not found". The two candidate causes need opposite
+// fixes and look identical from the token push alone, so report the discriminator directly:
+// whether this extension can SEE Sub's RSI tabs. Tab titles come straight off tabs.query — no
+// script injection, and deliberately no request to RSI (probing /identify is what rotated the
+// session and logged Sub out back in 2026-06).
+//   • RSI tabs visible + signed-in titles, but no first-party cookies → HttpOnly/cookie-access problem.
+//   • No RSI tabs visible at all, while Sub has them open → different Chrome profile.
+async function runDiagnostics() {
+  const out = { at: now(), stores: [], tabs: [] }
+
+  let stores = [{ id: undefined }]
+  try { const s = await api.cookies.getAllCookieStores(); if (s && s.length) stores = s } catch { /* default only */ }
+  for (const st of stores) {
+    const seen = new Set()
+    let httpOnly = 0
+    for (const q of [{ url: `${RSI_URL}/` }, { domain: 'robertsspaceindustries.com' }]) {
+      const opts = { ...q }
+      if (st.id) opts.storeId = st.id
+      try {
+        for (const c of await api.cookies.getAll(opts)) {
+          if (!seen.has(c.name)) { seen.add(c.name); if (c.httpOnly) httpOnly++ }
+        }
+      } catch { /* store unreadable */ }
+    }
+    out.stores.push({ id: st.id ?? 'default', count: seen.size, httpOnly, names: [...seen] })
+  }
+
+  try {
+    for (const t of await api.tabs.query({ url: `${RSI_URL}/*` })) {
+      out.tabs.push({ url: (t.url || '').slice(0, 90), title: t.title || '' })
+    }
+  } catch { /* no tabs permission */ }
+
+  await api.storage.local.set({ lastDiag: out })
+  return out
+}
+
 async function pushToken(reason) {
   const { value: token } = await readCookie()
   const stamp = at => ({ at, reason })
@@ -334,6 +371,7 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'mark-seen') { markSeen().then(() => sendResponse({ done: true })); return true }
   if (msg?.type === 'motd') { ingestMotd(msg).then(() => sendResponse({ done: true })); return true }
   if (msg?.type === 'scan-motd-now') { runMotdScan('manual').then(r => sendResponse({ done: true, results: r })); return true }
+  if (msg?.type === 'diagnose') { runDiagnostics().then(r => sendResponse({ done: true, diag: r })); return true }
 })
 
 // Prime on install/startup so the badge + popup have data immediately, (re)create the right-click
